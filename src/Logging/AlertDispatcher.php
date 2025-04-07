@@ -19,7 +19,7 @@ class AlertDispatcher
     /**
      * Determine whether this alert should be sent based on cooldown.
      */
-    protected function shouldSendAlert($eventType, $context)
+    protected function shouldSendAlert($eventType, $context): bool
     {
         $hashKey = md5($eventType . ':' . json_encode($context));
         $cacheKey = "idempotency:alert_sent:{$hashKey}";
