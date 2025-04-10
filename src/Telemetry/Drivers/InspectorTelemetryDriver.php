@@ -3,37 +3,51 @@
 namespace Infinitypaul\Idempotency\Telemetry\Drivers;
 
 use Infinitypaul\Idempotency\Telemetry\TelemetryDriver;
+use Inspector\Laravel\Facades\Inspector;
 
 class InspectorTelemetryDriver implements TelemetryDriver
 {
 
     public function startSegment($name, $description = null)
     {
-        // TODO: Implement startSegment() method.
+        if(!Inspector::isRecording()){
+            return null;
+        }
+        return Inspector::startSegment($name, $description ?? $name);
     }
 
     public function addSegmentContext($segment, $key, $value)
     {
-        // TODO: Implement addSegmentContext() method.
+        if ($segment) {
+            $segment->addContext($key, $value);
+        }
     }
 
     public function endSegment($segment)
     {
-        // TODO: Implement endSegment() method.
+        if ($segment) {
+            $segment->end();
+        }
     }
 
     public function recordMetric($name, $value = 1)
     {
-        // TODO: Implement recordMetric() method.
+        if (Inspector::isRecording()) {
+            Inspector::startSegment('metric', $name)->addContext('value', $value)->end();
+        }
     }
 
     public function recordTiming($name, $milliseconds)
     {
-        // TODO: Implement recordTiming() method.
+        if (Inspector::isRecording()) {
+            Inspector::startSegment('timing', $name)->addContext('value_ms', $milliseconds)->end();
+        }
     }
 
     public function recordSize($name, $bytes)
     {
-        // TODO: Implement recordSize() method.
+        if (Inspector::isRecording()) {
+            Inspector::startSegment('size', $name)->addContext('bytes', $bytes)->end();
+        }
     }
 }

@@ -3,6 +3,7 @@ namespace Infinitypaul\Idempotency\Logging;
 class EventType
 {
     const LOCK_INCONSISTENCY = 'lock.inconsistency';
+    const SIZE_WARNING = 'size.warning';
     const CONCURRENT_CONFLICT = 'lock.concurrent_conflict';
     const CACHE_HIT = 'cache.hit';
     const CACHE_LATE_HIT = 'cache.late_hit';
