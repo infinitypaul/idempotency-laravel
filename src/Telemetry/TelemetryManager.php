@@ -13,12 +13,12 @@ class TelemetryManager extends Manager
     public function __construct($app)
     {
         parent::__construct($app);
-        $this->telemetryEnabled = config('idempotency.telemetry_driver');
+        $this->telemetryEnabled = config('idempotency.telemetry.enabled');
     }
 
     public function getDefaultDriver()
     {
-        return config('idempotency.telemetry_driver');
+        return config('idempotency.telemetry.driver');
     }
 
     public function createInspectorDriver()
@@ -27,7 +27,7 @@ class TelemetryManager extends Manager
     }
 
     public function createCustomDriver(){
-        $class = config('idempotency.custom_driver_class');
+        $class = config('idempotency.telemetry.custom_driver_class');
 
         if(!$class || !class_exists($class)){
             throw new InvalidArgumentException("Custom telemetry driver class [$class] not found.");

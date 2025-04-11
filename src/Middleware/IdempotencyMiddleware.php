@@ -5,9 +5,10 @@ namespace Infinitypaul\Idempotency\Middleware;
 use Closure;
 use Exception;
 use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Request;
-use Illuminate\Support\Facades\Response;
+use Illuminate\Http\Request;
 use Infinitypaul\Idempotency\Logging\AlertDispatcher;
 use Infinitypaul\Idempotency\Logging\EventType;
 use Infinitypaul\Idempotency\Telemetry\TelemetryManager;
@@ -20,7 +21,7 @@ class IdempotencyMiddleware
     private const PROCESSING_TTL_MINUTES = 5;
 
     private TelemetryManager $telemetryManager;
-    private string $segment;
+    private mixed $segment;
     private float $startTime;
 
     public function __construct(TelemetryManager $telemetryManager)
@@ -36,7 +37,7 @@ class IdempotencyMiddleware
      * @return mixed
      * @throws LockTimeoutException|Exception
      */
-    public function handle(Request $request, Closure $next)
+    public function handle(Request $request, Closure $next): mixed
     {
         $this->startTime = microtime(true);
         $this->initializeTelemetry($request);
@@ -45,15 +46,18 @@ class IdempotencyMiddleware
             return $this->handleSkippedMethod($next, $request);
         }
 
+
         $idempotencyKey = $request->header('Idempotency-Key');
 
         if (!$idempotencyKey) {
             return $this->handleMissingKey();
         }
 
+
         if (!$this->isValidUuid($idempotencyKey)) {
             return $this->handleInvalidKey();
         }
+
 
         $keys = $this->generateCacheKeys($idempotencyKey);
 
@@ -105,7 +109,7 @@ class IdempotencyMiddleware
      * @param Request $request
      * @return mixed
      */
-    private function handleSkippedMethod(Closure $next, Request $request)
+    private function handleSkippedMethod(Closure $next, Request $request): mixed
     {
         $telemetry = $this->telemetryManager->driver();
         $telemetry->addSegmentContext($this->segment, 'skipped', true);
@@ -127,7 +131,6 @@ class IdempotencyMiddleware
         $telemetry->addSegmentContext($this->segment, 'error', 'missing_key');
         $telemetry->endSegment($this->segment);
         $telemetry->recordMetric('errors.missing_key');
-
         return response()->json(['error' => 'Missing Idempotency-Key header'], 400);
     }
 
@@ -179,9 +182,9 @@ class IdempotencyMiddleware
      * @param array $keys
      * @param string $idempotencyKey
      * @param Request $request
-     * @return Response
+     * @return mixed
      */
-    private function handleCachedResponse(array $keys, string $idempotencyKey, Request $request): Response
+    private function handleCachedResponse(array $keys, string $idempotencyKey, Request $request): mixed
     {
         $telemetry = $this->telemetryManager->driver();
         $telemetry->recordMetric('cache.hit');
@@ -258,12 +261,12 @@ class IdempotencyMiddleware
     /**
      * Add idempotency headers to the response.
      *
-     * @param Response $response
+     * @param $response
      * @param string $idempotencyKey
      * @param string $status
      * @return void
      */
-    private function addIdempotencyHeaders(Response $response, string $idempotencyKey, string $status): void
+    private function addIdempotencyHeaders($response, string $idempotencyKey, string $status): void
     {
         $response->headers->set('Idempotency-Key', $idempotencyKey);
         $response->headers->set('Idempotency-Status', $status);
@@ -279,7 +282,7 @@ class IdempotencyMiddleware
      * @return mixed
      * @throws LockTimeoutException
      */
-    private function handleNewRequest(array $keys, string $idempotencyKey, Closure $next, Request $request)
+    private function handleNewRequest(array $keys, string $idempotencyKey, Closure $next, Request $request): mixed
     {
         $lock = Cache::lock($keys['lock'], self::LOCK_TIMEOUT_SECONDS);
         $lockAcquired = false;
@@ -300,6 +303,7 @@ class IdempotencyMiddleware
                     $lockAcquisitionTime
                 );
             }
+
 
             $telemetry->recordMetric('lock.successful_acquisition', 1);
 
@@ -432,7 +436,7 @@ class IdempotencyMiddleware
      * @param Request $request
      * @return mixed
      */
-    private function processRequest(array $keys, string $idempotencyKey, Closure $next, Request $request)
+    private function processRequest(array $keys, string $idempotencyKey, Closure $next, Request $request): mixed
     {
         Cache::put($keys['processing'], true, now()->addMinutes(self::PROCESSING_TTL_MINUTES));
 

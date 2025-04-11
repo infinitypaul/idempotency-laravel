@@ -16,7 +16,7 @@ class InspectorTelemetryDriver implements TelemetryDriver
         return Inspector::startSegment($name, $description ?? $name);
     }
 
-    public function addSegmentContext($segment, $key, $value)
+    public function addSegmentContext($segment, $key, $value): void
     {
         if ($segment) {
             $segment->addContext($key, $value);
