@@ -167,11 +167,8 @@ return [
     |
     */
     'alerts' => [
-        // Enable or disable alerts for idempotency events
-        'enabled' => env('IDEMPOTENCY_ALERTS_ENABLED', true),
-
-        // Default channels for alerts
-        'channels' => env('IDEMPOTENCY_ALERT_CHANNELS', 'log'),
+        // Alert threshold
+        'threshold' => env('IDEMPOTENCY_ALERTS_THRESHOLD', true),
 
     ],
 

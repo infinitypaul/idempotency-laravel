@@ -142,7 +142,7 @@ class IdempotencyMiddleware
      */
     private function isValidUuid(string $key): bool
     {
-        return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $key);
+        return preg_match(config('idempotency.validation.pattern', '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i'), $key);
     }
 
     /**
@@ -243,7 +243,7 @@ class IdempotencyMiddleware
      */
     private function checkAlertThreshold(array $metadata, string $idempotencyKey, Request $request): void
     {
-        if ($metadata['hit_count'] >= config('idempotency.alert_threshold', 5)) {
+        if ($metadata['hit_count'] >= config('idempotency.alert.threshold', 5)) {
             (new AlertDispatcher())->dispatch(
                 EventType::RESPONSE_DUPLICATE,
                 [
@@ -334,7 +334,8 @@ class IdempotencyMiddleware
         string $idempotencyKey,
         Request $request,
         float $lockAcquisitionTime
-    ) {
+    ): mixed
+    {
         $telemetry = $this->telemetryManager->driver();
         $telemetry->recordMetric('lock.failed_acquisition', 1);
         $telemetry->addSegmentContext($this->segment, 'lock_wait_time_ms', $lockAcquisitionTime * 1000);
@@ -519,7 +520,7 @@ class IdempotencyMiddleware
      */
     private function checkResponseSizeWarning(int $responseSize, Request $request): void
     {
-        if ($responseSize > config('idempotency.size_warning', 1024 * 100)) {
+        if ($responseSize > config('idempotency.validation.max_length', 1024 * 100)) {
             (new AlertDispatcher())->dispatch(
                 EventType::SIZE_WARNING,
                 [
