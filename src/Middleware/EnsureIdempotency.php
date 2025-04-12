@@ -13,7 +13,7 @@ use Infinitypaul\Idempotency\Logging\AlertDispatcher;
 use Infinitypaul\Idempotency\Logging\EventType;
 use Infinitypaul\Idempotency\Telemetry\TelemetryManager;
 
-class IdempotencyMiddleware
+class EnsureIdempotency
 {
     private const LOCK_TIMEOUT_SECONDS = 30;
     private const LOCK_WAIT_SECONDS = 5;
@@ -172,6 +172,7 @@ class IdempotencyMiddleware
             'processing' => "idempotency:{$idempotencyKey}:processing",
             'metadata' => "idempotency:{$idempotencyKey}:metadata",
             'lock' => "idempotency_lock:{$idempotencyKey}",
+            'payload_hash' => "idempotency:{$idempotencyKey}:payload_hash",
         ];
     }
 
@@ -185,6 +186,20 @@ class IdempotencyMiddleware
      */
     private function handleCachedResponse(array $keys, string $idempotencyKey, Request $request): mixed
     {
+        $storedHash = Cache::get($keys['payload_hash']);
+        $currentHash = md5(json_encode($request->all()));
+
+        if ($storedHash !== $currentHash) {
+            $telemetry = $this->telemetryManager->driver();
+            $telemetry->recordMetric('errors.payload_mismatch', 1);
+            $telemetry->addSegmentContext($this->segment, 'error', 'payload_mismatch');
+            $telemetry->endSegment($this->segment);
+
+            return response()->json([
+                'error' => 'Idempotency-Key reused with different request payload',
+            ], 422);
+        }
+
         $telemetry = $this->telemetryManager->driver();
         $telemetry->recordMetric('cache.hit');
 
@@ -439,6 +454,9 @@ class IdempotencyMiddleware
     private function processRequest(array $keys, string $idempotencyKey, Closure $next, Request $request): mixed
     {
         Cache::put($keys['processing'], true, now()->addMinutes(self::PROCESSING_TTL_MINUTES));
+
+        $payloadHash = md5(json_encode($request->all()));
+        Cache::put($keys['payload_hash'], $payloadHash, now()->addMinutes(config('idempotency.ttl')));
 
         $this->setRequestMetadata($keys['metadata'], $request);
 
