@@ -7,7 +7,7 @@ use Infinitypaul\Idempotency\Events\IdempotencyAlertFired;
 
 class AlertDispatcher
 {
-    public function dispatch($eventType, $context = [])
+    public function dispatch($eventType, $context = []): void
     {
         if (! $this->shouldSendAlert($eventType, $context)) {
             return;
@@ -28,7 +28,7 @@ class AlertDispatcher
             return false;
         }
 
-        $cooldown = config("idempotency.alerts.cooldown.{$eventType}", 60);
+        $cooldown = config("idempotency.alerts.threshold", 60);
         Cache::put($cacheKey, true, now()->addMinutes($cooldown));
 
         return true;

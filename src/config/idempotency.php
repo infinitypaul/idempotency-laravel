@@ -59,17 +59,6 @@ return [
     */
     'size_warning' => env('IDEMPOTENCY_SIZE_WARNING', 1024 * 100),
 
-    /*
-    |--------------------------------------------------------------------------
-    | Cache Store
-    |--------------------------------------------------------------------------
-    |
-    | The cache store to use for idempotency responses.
-    | Default is the application's default cache store.
-    | You may want to use a dedicated store for idempotency to avoid polluting your main cache.
-    |
-    */
-    'cache_store' => env('IDEMPOTENCY_CACHE_STORE'),
 
     /*
     |--------------------------------------------------------------------------
@@ -114,7 +103,7 @@ return [
     | Useful for bypassing idempotency in certain environments like testing.
     |
     */
-    'enabled' => env('IDEMPOTENCY_ENABLED', true),
+    'enabled' => env('IDEMPOTENCY_ENABLED', false),
 
     /*
     |--------------------------------------------------------------------------
@@ -127,17 +116,6 @@ return [
     */
     'header_name' => env('IDEMPOTENCY_HEADER_NAME', 'Idempotency-Key'),
 
-    /*
-    |--------------------------------------------------------------------------
-    | Required Header
-    |--------------------------------------------------------------------------
-    |
-    | Determines if the idempotency key header is required for applicable methods.
-    | If true, requests without the header will be rejected.
-    | If false, requests without the header will be processed normally without idempotency.
-    |
-    */
-    'require_header' => env('IDEMPOTENCY_REQUIRE_HEADER', true),
 
     /*
     |--------------------------------------------------------------------------
@@ -168,7 +146,7 @@ return [
     */
     'alerts' => [
         // Alert threshold
-        'threshold' => env('IDEMPOTENCY_ALERTS_THRESHOLD', true),
+        'threshold' => env('IDEMPOTENCY_ALERTS_THRESHOLD', 60),
 
     ],
 

@@ -15,7 +15,6 @@ use Infinitypaul\Idempotency\Telemetry\TelemetryManager;
 
 class IdempotencyMiddleware
 {
-    private const CACHE_TTL_MINUTES = 60;
     private const LOCK_TIMEOUT_SECONDS = 30;
     private const LOCK_WAIT_SECONDS = 5;
     private const PROCESSING_TTL_MINUTES = 5;
@@ -98,7 +97,7 @@ class IdempotencyMiddleware
     {
         return in_array(
             $request->method(),
-            config('idempotency.methods', ['POST', 'PUT', 'PATCH', 'DELETE'])
+            config('idempotency.methods')
         );
     }
 
@@ -142,7 +141,7 @@ class IdempotencyMiddleware
      */
     private function isValidUuid(string $key): bool
     {
-        return preg_match(config('idempotency.validation.pattern', '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i'), $key);
+        return preg_match(config('idempotency.validation.pattern'), $key);
     }
 
     /**
@@ -227,7 +226,7 @@ class IdempotencyMiddleware
         Cache::put(
             $metadataKey,
             $metadata,
-            now()->addMinutes(config('idempotency.ttl', self::CACHE_TTL_MINUTES))
+            now()->addMinutes(config('idempotency.ttl'))
         );
 
         return $metadata;
@@ -243,7 +242,7 @@ class IdempotencyMiddleware
      */
     private function checkAlertThreshold(array $metadata, string $idempotencyKey, Request $request): void
     {
-        if ($metadata['hit_count'] >= config('idempotency.alert.threshold', 5)) {
+        if ($metadata['hit_count'] >= config('idempotency.alert.threshold')) {
             (new AlertDispatcher())->dispatch(
                 EventType::RESPONSE_DUPLICATE,
                 [
@@ -484,7 +483,7 @@ class IdempotencyMiddleware
                 'user_id' => auth()->check() ? $request->user()->id : null,
                 'client_ip' => $request->ip(),
             ],
-            now()->addMinutes(config('idempotency.ttl', self::CACHE_TTL_MINUTES))
+            now()->addMinutes(config('idempotency.ttl'))
         );
     }
 
@@ -501,7 +500,7 @@ class IdempotencyMiddleware
         Cache::put(
             $cacheKey,
             $response,
-            now()->addMinutes(config('idempotency.ttl', self::CACHE_TTL_MINUTES))
+            now()->addMinutes(config('idempotency.ttl'))
         );
 
         $responseSize = strlen($response->getContent());
@@ -520,7 +519,7 @@ class IdempotencyMiddleware
      */
     private function checkResponseSizeWarning(int $responseSize, Request $request): void
     {
-        if ($responseSize > config('idempotency.validation.max_length', 1024 * 100)) {
+        if ($responseSize > config('idempotency.validation.max_length')) {
             (new AlertDispatcher())->dispatch(
                 EventType::SIZE_WARNING,
                 [
