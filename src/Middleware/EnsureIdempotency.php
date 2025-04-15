@@ -522,18 +522,75 @@ class EnsureIdempotency
      */
     private function cacheResponse(string $cacheKey, $response, Request $request): void
     {
-        Cache::put(
-            $cacheKey,
-            $response,
-            now()->addMinutes(config('idempotency.ttl'))
-        );
+        $cacheableResponse = $this->prepareCacheableResponse($response);
 
-        $responseSize = strlen($response->getContent());
-        $telemetry = $this->telemetryManager->driver();
-        $telemetry->recordSize('response_size', $responseSize);
+        try {
+            Cache::put(
+                $cacheKey,
+                $cacheableResponse,
+                now()->addMinutes(config('idempotency.ttl'))
+            );
 
-        $this->checkResponseSizeWarning($responseSize, $request);
+            $responseSize = strlen($response->getContent());
+            $telemetry = $this->telemetryManager->driver();
+            $telemetry->recordSize('response_size', $responseSize);
+
+            $this->checkResponseSizeWarning($responseSize, $request);
+        } catch (\Exception $e) {
+            $this->telemetryManager->driver()->recordMetric('errors.cache_failed', 1);
+
+            (new AlertDispatcher())->dispatch(
+                EventType::EXCEPTION_THROWN,
+                [
+                    'message' => 'Failed to cache response: ' . $e->getMessage(),
+                    'exception' => get_class($e),
+                ]
+            );
+        }
     }
+
+    /**
+     * Create a serializable version of the response
+     *
+     * @param mixed $response
+     * @return mixed
+     */
+    private function prepareCacheableResponse($response)
+    {
+        if (!method_exists($response, 'getStatusCode') ||
+            !method_exists($response, 'getContent')) {
+            return $response;
+        }
+
+        $cacheableResponse = clone $response;
+
+
+        $content = json_decode($response->getContent(), true);
+
+
+        if (is_array($content)) {
+            if (isset($content['exception'])) {
+                unset($content['exception']);
+            }
+
+
+            array_walk_recursive($content, function (&$value, $key) {
+                if ($key === 'exception') {
+                    $value = is_array($value) ? null : '[Filtered Exception]';
+                }
+            });
+
+            $cacheableResponse->setContent(json_encode($content));
+        }
+
+
+        if (property_exists($cacheableResponse, 'exception')) {
+            unset($cacheableResponse->exception);
+        }
+
+        return $cacheableResponse;
+    }
+
 
     /**
      * Check if response size exceeds the warning threshold.
