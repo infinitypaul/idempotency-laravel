@@ -470,10 +470,15 @@ class EnsureIdempotency
         $telemetry->recordTiming('request_processing_time', $processingTime * 1000);
         $this->addIdempotencyHeaders($response, $idempotencyKey, 'Original');
 
-        if ($response->isSuccessful()) {
-            $this->cacheSuccessfulResponse($keys['response'], $response, $request);
+        $statusCode = $response->getStatusCode();
+        if ($statusCode < 500) {
+            $this->cacheResponse($keys['response'], $response, $request);
+
+            if ($statusCode >= 400) {
+                $telemetry->recordMetric('responses.error.cached', 1);
+            }
         } else {
-            $telemetry->recordMetric('responses.error', 1);
+            $telemetry->recordMetric('responses.error.not_cached', 1);
         }
 
         $telemetry->addSegmentContext($this->segment, 'status', 'original');
@@ -505,6 +510,8 @@ class EnsureIdempotency
         );
     }
 
+
+
     /**
      * Cache a successful response.
      *
@@ -513,7 +520,7 @@ class EnsureIdempotency
      * @param Request $request
      * @return void
      */
-    private function cacheSuccessfulResponse(string $cacheKey, $response, Request $request): void
+    private function cacheResponse(string $cacheKey, $response, Request $request): void
     {
         Cache::put(
             $cacheKey,
