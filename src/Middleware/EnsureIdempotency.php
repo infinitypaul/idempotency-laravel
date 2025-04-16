@@ -471,7 +471,7 @@ class EnsureIdempotency
         $this->addIdempotencyHeaders($response, $idempotencyKey, 'Original');
 
         $statusCode = $response->getStatusCode();
-        if ($statusCode < 500) {
+        if ($statusCode < 500 && $statusCode !== 429) {
             $this->cacheResponse($keys['response'], $response, $request);
 
             if ($statusCode >= 400) {
