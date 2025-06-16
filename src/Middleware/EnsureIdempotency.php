@@ -45,18 +45,15 @@ class EnsureIdempotency
             return $this->handleSkippedMethod($next, $request);
         }
 
-
         $idempotencyKey = $request->header('Idempotency-Key');
 
         if (!$idempotencyKey) {
             return $this->handleMissingKey();
         }
 
-
         if (!$this->isValidUuid($idempotencyKey)) {
             return $this->handleInvalidKey();
         }
-
 
         $keys = $this->generateCacheKeys($idempotencyKey);
 
@@ -298,18 +295,23 @@ class EnsureIdempotency
      */
     private function handleNewRequest(array $keys, string $idempotencyKey, Closure $next, Request $request): mixed
     {
-        $lock = Cache::lock($keys['lock'], self::LOCK_TIMEOUT_SECONDS);
+        $lock = Cache::lock($keys['lock'], $this->getLockTimeout());
         $lockAcquired = false;
         $lockAcquisitionStart = microtime(true);
 
         try {
-            $lockAcquired = $lock->block(self::LOCK_WAIT_SECONDS);
+            $lockAcquired = $lock->block($this->getLockWait());
             $lockAcquisitionTime = microtime(true) - $lockAcquisitionStart;
 
             $telemetry = $this->telemetryManager->driver();
             $telemetry->recordTiming('lock_acquisition_time', $lockAcquisitionTime * 1000);
 
             if (!$lockAcquired) {
+                // Check if response was cached while waiting for lock
+                if (Cache::has($keys['response'])) {
+                    return $this->handleLateCachedResponse($keys, $idempotencyKey);
+                }
+
                 return $this->handleLockAcquisitionFailure(
                     $keys,
                     $idempotencyKey,
@@ -318,9 +320,12 @@ class EnsureIdempotency
                 );
             }
 
+            // Double check if response was cached after we acquired the lock
+            if (Cache::has($keys['response'])) {
+                return $this->handleLateCachedResponse($keys, $idempotencyKey);
+            }
 
             $telemetry->recordMetric('lock.successful_acquisition', 1);
-
             return $this->processRequest($keys, $idempotencyKey, $next, $request);
 
         } catch (Exception $e) {
@@ -453,39 +458,43 @@ class EnsureIdempotency
      */
     private function processRequest(array $keys, string $idempotencyKey, Closure $next, Request $request): mixed
     {
-        Cache::put($keys['processing'], true, now()->addMinutes(self::PROCESSING_TTL_MINUTES));
+        try {
+            Cache::put($keys['processing'], true, now()->addMinutes($this->getProcessingTtl()));
 
-        $payloadHash = md5(json_encode($request->all()));
-        Cache::put($keys['payload_hash'], $payloadHash, now()->addMinutes(config('idempotency.ttl')));
+            $payloadHash = md5(json_encode($request->all()));
+            Cache::put($keys['payload_hash'], $payloadHash, now()->addMinutes(config('idempotency.ttl')));
 
-        $this->setRequestMetadata($keys['metadata'], $request);
+            $this->setRequestMetadata($keys['metadata'], $request);
 
-        $telemetry = $this->telemetryManager->driver();
-        $telemetry->recordMetric('requests.original', 1);
+            $telemetry = $this->telemetryManager->driver();
+            $telemetry->recordMetric('requests.original', 1);
 
-        $processingStart = microtime(true);
-        $response = $next($request);
-        $processingTime = microtime(true) - $processingStart;
+            $processingStart = microtime(true);
+            $response = $next($request);
+            $processingTime = microtime(true) - $processingStart;
 
-        $telemetry->recordTiming('request_processing_time', $processingTime * 1000);
-        $this->addIdempotencyHeaders($response, $idempotencyKey, 'Original');
+            $telemetry->recordTiming('request_processing_time', $processingTime * 1000);
+            $this->addIdempotencyHeaders($response, $idempotencyKey, 'Original');
 
-        $statusCode = $response->getStatusCode();
-        if ($statusCode < 500 && $statusCode !== 429) {
-            $this->cacheResponse($keys['response'], $response, $request);
-
-            if ($statusCode >= 400) {
-                $telemetry->recordMetric('responses.error.cached', 1);
+            $statusCode = $response->getStatusCode();
+            if ($statusCode < 500 && $statusCode !== 429) {
+                // Cache the response before releasing the lock
+                $this->cacheResponse($keys['response'], $response, $request);
+                if ($statusCode >= 400) {
+                    $telemetry->recordMetric('responses.error.cached', 1);
+                }
+            } else {
+                $telemetry->recordMetric('responses.error.not_cached', 1);
             }
-        } else {
-            $telemetry->recordMetric('responses.error.not_cached', 1);
+
+            $telemetry->addSegmentContext($this->segment, 'status', 'original');
+            $telemetry->addSegmentContext($this->segment, 'processing_time_ms', $processingTime * 1000);
+            $telemetry->endSegment($this->segment);
+
+            return $response;
+        } catch (\Exception $e) {
+            throw $e;
         }
-
-        $telemetry->addSegmentContext($this->segment, 'status', 'original');
-        $telemetry->addSegmentContext($this->segment, 'processing_time_ms', $processingTime * 1000);
-        $telemetry->endSegment($this->segment);
-
-        return $response;
     }
 
     /**
@@ -509,8 +518,6 @@ class EnsureIdempotency
             now()->addMinutes(config('idempotency.ttl'))
         );
     }
-
-
 
     /**
      * Cache a successful response.
@@ -633,5 +640,20 @@ class EnsureIdempotency
                 'exception' => get_class($exception),
             ]
         );
+    }
+
+    private function getLockTimeout(): int
+    {
+        return config('idempotency.lock_timeout', self::LOCK_TIMEOUT_SECONDS);
+    }
+
+    private function getLockWait(): int
+    {
+        return config('idempotency.lock_wait', self::LOCK_WAIT_SECONDS);
+    }
+
+    private function getProcessingTtl(): int
+    {
+        return config('idempotency.processing_ttl', self::PROCESSING_TTL_MINUTES);
     }
 }
