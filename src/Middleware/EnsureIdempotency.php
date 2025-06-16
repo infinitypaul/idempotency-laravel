@@ -378,9 +378,9 @@ class EnsureIdempotency
      *
      * @param array $keys
      * @param string $idempotencyKey
-     * @return Response
+     * @return mixed
      */
-    private function handleLateCachedResponse(array $keys, string $idempotencyKey): Response
+    private function handleLateCachedResponse(array $keys, string $idempotencyKey): mixed
     {
         $telemetry = $this->telemetryManager->driver();
         $telemetry->recordMetric('cache.late_hit', 1);
