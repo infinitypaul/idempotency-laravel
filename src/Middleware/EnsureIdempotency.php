@@ -38,6 +38,10 @@ class EnsureIdempotency
      */
     public function handle(Request $request, Closure $next): mixed
     {
+        if (!config('idempotency.enabled')) {
+            return $next($request);
+        }
+        
         $this->startTime = microtime(true);
         $this->initializeTelemetry($request);
 
