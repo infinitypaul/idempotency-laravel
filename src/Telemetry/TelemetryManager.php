@@ -13,7 +13,7 @@ class TelemetryManager extends Manager
     public function __construct($app)
     {
         parent::__construct($app);
-        $this->telemetryEnabled = config('idempotency.enabled');
+        $this->telemetryEnabled = config('idempotency.telemetry.enabled');
     }
 
     public function getDefaultDriver()
