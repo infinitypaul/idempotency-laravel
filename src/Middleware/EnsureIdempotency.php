@@ -12,6 +12,9 @@ use Illuminate\Http\Request;
 use Infinitypaul\Idempotency\Logging\AlertDispatcher;
 use Infinitypaul\Idempotency\Logging\EventType;
 use Infinitypaul\Idempotency\Telemetry\TelemetryManager;
+use Infinitypaul\Idempotency\Data\CachedResponse;
+use InvalidArgumentException;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class EnsureIdempotency
 {
@@ -41,7 +44,7 @@ class EnsureIdempotency
         if (!config('idempotency.enabled')) {
             return $next($request);
         }
-        
+
         $this->startTime = microtime(true);
         $this->initializeTelemetry($request);
 
@@ -183,9 +186,9 @@ class EnsureIdempotency
      * @param array $keys
      * @param string $idempotencyKey
      * @param Request $request
-     * @return mixed
+     * @return JsonResponse|SymfonyResponse
      */
-    private function handleCachedResponse(array $keys, string $idempotencyKey, Request $request): mixed
+    private function handleCachedResponse(array $keys, string $idempotencyKey, Request $request): JsonResponse|SymfonyResponse
     {
         $storedHash = Cache::get($keys['payload_hash']);
         $currentHash = md5(json_encode($request->all()));
@@ -217,10 +220,30 @@ class EnsureIdempotency
 
         $this->checkAlertThreshold($metadata, $idempotencyKey, $request);
 
-        $response = Cache::get($keys['response']);
+        $response = $this->makeResponseFromCache($keys['response']);
         $this->addIdempotencyHeaders($response, $idempotencyKey, 'Repeated');
 
         return $response;
+    }
+
+    /**
+     * Make a response from cached data.
+     * @param string $responseKey
+     * @return SymfonyResponse
+     */
+    private function makeResponseFromCache(string $responseKey): SymfonyResponse
+    {
+        $cachedResponse = Cache::get($responseKey);
+
+        if ($cachedResponse instanceof JsonResponse) {
+            return CachedResponse::fromResponse($cachedResponse)->toResponse();
+        }
+
+        if (is_array($cachedResponse)) {
+            return CachedResponse::fromArray($cachedResponse)->toResponse();
+        }
+
+        throw new InvalidArgumentException('Unexpected cache payload found.');
     }
 
     /**
@@ -232,7 +255,7 @@ class EnsureIdempotency
     private function updateMetadata(string $metadataKey): array
     {
         $metadata = Cache::get($metadataKey, [
-            'created_at' => now()->subMinutes(1)->timestamp,
+            'created_at' => now()->subMinute()->timestamp,
             'hit_count' => 0,
         ]);
 
@@ -382,16 +405,16 @@ class EnsureIdempotency
      *
      * @param array $keys
      * @param string $idempotencyKey
-     * @return mixed
+     * @return SymfonyResponse
      */
-    private function handleLateCachedResponse(array $keys, string $idempotencyKey): mixed
+    private function handleLateCachedResponse(array $keys, string $idempotencyKey): SymfonyResponse
     {
         $telemetry = $this->telemetryManager->driver();
         $telemetry->recordMetric('cache.late_hit', 1);
         $telemetry->addSegmentContext($this->segment, 'status', 'late_duplicate');
         $telemetry->endSegment($this->segment);
 
-        $response = Cache::get($keys['response']);
+        $response = $this->makeResponseFromCache($keys['response']);
         $this->addIdempotencyHeaders($response, $idempotencyKey, 'Repeated');
 
         return $response;
@@ -496,7 +519,7 @@ class EnsureIdempotency
             $telemetry->endSegment($this->segment);
 
             return $response;
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             throw $e;
         }
     }
@@ -533,12 +556,10 @@ class EnsureIdempotency
      */
     private function cacheResponse(string $cacheKey, $response, Request $request): void
     {
-        $cacheableResponse = $this->prepareCacheableResponse($response);
-
         try {
             Cache::put(
                 $cacheKey,
-                $cacheableResponse,
+                CachedResponse::fromResponse($response)->toArray(),
                 now()->addMinutes(config('idempotency.ttl'))
             );
 
@@ -547,7 +568,7 @@ class EnsureIdempotency
             $telemetry->recordSize('response_size', $responseSize);
 
             $this->checkResponseSizeWarning($responseSize, $request);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->telemetryManager->driver()->recordMetric('errors.cache_failed', 1);
 
             (new AlertDispatcher())->dispatch(
@@ -559,49 +580,6 @@ class EnsureIdempotency
             );
         }
     }
-
-    /**
-     * Create a serializable version of the response
-     *
-     * @param mixed $response
-     * @return mixed
-     */
-    private function prepareCacheableResponse($response)
-    {
-        if (!method_exists($response, 'getStatusCode') ||
-            !method_exists($response, 'getContent')) {
-            return $response;
-        }
-
-        $cacheableResponse = clone $response;
-
-
-        $content = json_decode($response->getContent(), true);
-
-
-        if (is_array($content)) {
-            if (isset($content['exception'])) {
-                unset($content['exception']);
-            }
-
-
-            array_walk_recursive($content, function (&$value, $key) {
-                if ($key === 'exception') {
-                    $value = is_array($value) ? null : '[Filtered Exception]';
-                }
-            });
-
-            $cacheableResponse->setContent(json_encode($content));
-        }
-
-
-        if (property_exists($cacheableResponse, 'exception')) {
-            unset($cacheableResponse->exception);
-        }
-
-        return $cacheableResponse;
-    }
-
 
     /**
      * Check if response size exceeds the warning threshold.
