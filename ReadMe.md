@@ -42,6 +42,9 @@ return [
     
     // How long to cache idempotent responses (in minutes)
     'ttl' => env('IDEMPOTENCY_TTL', 1440), // 24 hours
+
+    // Cache store to use (null = default store)
+    'cache_store' => env('IDEMPOTENCY_CACHE_STORE', null),
     
     // Validation settings
     'validation' => [
@@ -68,6 +71,36 @@ return [
     ],
 ];
 ```
+## Using a Dedicated Cache Store
+
+By default the middleware uses your application's default cache store. This means running `php artisan cache:clear` will also wipe cached idempotency responses. To avoid this, point the package at its own store:
+
+1. Define a new store in `config/cache.php`:
+
+```php
+'stores' => [
+    // ... your other stores ...
+
+    'idempotency' => [
+        'driver' => 'redis',
+        'connection' => 'default',
+        'prefix' => 'idempotency',
+    ],
+],
+```
+
+2. Set the store in `config/idempotency.php` (or via `.env`):
+
+```php
+'cache_store' => env('IDEMPOTENCY_CACHE_STORE', 'idempotency'),
+```
+
+```env
+IDEMPOTENCY_CACHE_STORE=idempotency
+```
+
+Now `php artisan cache:clear` only clears the default store, leaving idempotency data intact.
+
 ## Usage
 Add the middleware to your routes or route groups in your routes/api.php file:
 ```php

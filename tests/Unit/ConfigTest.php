@@ -54,4 +54,9 @@ class ConfigTest extends TestCase
     {
         $this->assertEquals('null', config('idempotency.telemetry.driver'));
     }
+
+    public function test_cache_store_defaults_to_null(): void
+    {
+        $this->assertNull(config('idempotency.cache_store'));
+    }
 }
