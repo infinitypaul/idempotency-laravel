@@ -101,6 +101,12 @@ IDEMPOTENCY_CACHE_STORE=idempotency
 
 Now `php artisan cache:clear` only clears the default store, leaving idempotency data intact.
 
+To clear the idempotency cache when needed, target the store explicitly:
+
+```bash
+php artisan cache:clear --store=idempotency
+```
+
 ## Usage
 Add the middleware to your routes or route groups in your routes/api.php file:
 ```php
