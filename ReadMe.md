@@ -138,6 +138,16 @@ Then update your configuration:
 ],
 ```
 
+## Testing
+
+```bash
+# Run unit & feature tests
+vendor/bin/phpunit
+
+# Run race condition test (starts a server, fires concurrent requests)
+php tests/scripts/test_race_condition.php --count=5 --rounds=3
+```
+
 ## Advanced Usage
 ### Custom Events
 The package dispatches an events that you can listen for:
