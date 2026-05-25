@@ -4,11 +4,12 @@ namespace Infinitypaul\Idempotency\Middleware;
 
 use Closure;
 use Exception;
+use Illuminate\Cache\CacheManager;
+use Illuminate\Cache\Repository as CacheStore;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Infinitypaul\Idempotency\Logging\AlertDispatcher;
 use Infinitypaul\Idempotency\Logging\EventType;
 use Infinitypaul\Idempotency\Telemetry\TelemetryManager;
@@ -20,12 +21,19 @@ class EnsureIdempotency
     private const PROCESSING_TTL_MINUTES = 5;
 
     private TelemetryManager $telemetryManager;
+    private CacheManager $cacheManager;
     private mixed $segment;
     private float $startTime;
 
-    public function __construct(TelemetryManager $telemetryManager)
+    public function __construct(TelemetryManager $telemetryManager, CacheManager $cacheManager)
     {
         $this->telemetryManager = $telemetryManager;
+        $this->cacheManager = $cacheManager;
+    }
+
+    private function cache(): CacheStore
+    {
+        return $this->cacheManager->store(config('idempotency.cache_store'));
     }
 
     /**
@@ -62,7 +70,7 @@ class EnsureIdempotency
         $keys = $this->generateCacheKeys($idempotencyKey);
 
         // Check for cached response
-        if (Cache::has($keys['response'])) {
+        if ($this->cache()->has($keys['response'])) {
             return $this->handleCachedResponse($keys, $idempotencyKey, $request);
         }
 
@@ -187,7 +195,7 @@ class EnsureIdempotency
      */
     private function handleCachedResponse(array $keys, string $idempotencyKey, Request $request): mixed
     {
-        $storedHash = Cache::get($keys['payload_hash']);
+        $storedHash = $this->cache()->get($keys['payload_hash']);
         $currentHash = md5(json_encode($request->all()));
 
         if ($storedHash !== $currentHash) {
@@ -217,7 +225,7 @@ class EnsureIdempotency
 
         $this->checkAlertThreshold($metadata, $idempotencyKey, $request);
 
-        $response = Cache::get($keys['response']);
+        $response = $this->cache()->get($keys['response']);
         $this->addIdempotencyHeaders($response, $idempotencyKey, 'Repeated');
 
         return $response;
@@ -231,7 +239,7 @@ class EnsureIdempotency
      */
     private function updateMetadata(string $metadataKey): array
     {
-        $metadata = Cache::get($metadataKey, [
+        $metadata = $this->cache()->get($metadataKey, [
             'created_at' => now()->subMinutes(1)->timestamp,
             'hit_count' => 0,
         ]);
@@ -239,7 +247,7 @@ class EnsureIdempotency
         $metadata['hit_count']++;
         $metadata['last_hit_at'] = now()->timestamp;
 
-        Cache::put(
+        $this->cache()->put(
             $metadataKey,
             $metadata,
             now()->addMinutes(config('idempotency.ttl'))
@@ -299,7 +307,7 @@ class EnsureIdempotency
      */
     private function handleNewRequest(array $keys, string $idempotencyKey, Closure $next, Request $request): mixed
     {
-        $lock = Cache::lock($keys['lock'], $this->getLockTimeout());
+        $lock = $this->cache()->lock($keys['lock'], $this->getLockTimeout());
         $lockAcquired = false;
         $lockAcquisitionStart = microtime(true);
 
@@ -312,7 +320,7 @@ class EnsureIdempotency
 
             if (!$lockAcquired) {
                 // Check if response was cached while waiting for lock
-                if (Cache::has($keys['response'])) {
+                if ($this->cache()->has($keys['response'])) {
                     return $this->handleLateCachedResponse($keys, $idempotencyKey);
                 }
 
@@ -325,7 +333,7 @@ class EnsureIdempotency
             }
 
             // Double check if response was cached after we acquired the lock
-            if (Cache::has($keys['response'])) {
+            if ($this->cache()->has($keys['response'])) {
                 return $this->handleLateCachedResponse($keys, $idempotencyKey);
             }
 
@@ -336,7 +344,7 @@ class EnsureIdempotency
             $this->logException($idempotencyKey, $e);
             throw $e;
         } finally {
-            Cache::forget($keys['processing']);
+            $this->cache()->forget($keys['processing']);
             if ($lockAcquired) {
                 $lock->release();
             }
@@ -364,12 +372,12 @@ class EnsureIdempotency
         $telemetry->addSegmentContext($this->segment, 'lock_wait_time_ms', $lockAcquisitionTime * 1000);
 
         // Check if a response was cached while waiting for the lock
-        if (Cache::has($keys['response'])) {
+        if ($this->cache()->has($keys['response'])) {
             return $this->handleLateCachedResponse($keys, $idempotencyKey);
         }
 
         // Check if another request is currently processing this key
-        if (Cache::has($keys['processing'])) {
+        if ($this->cache()->has($keys['processing'])) {
             return $this->handleConcurrentConflict($idempotencyKey, $request);
         }
 
@@ -391,7 +399,7 @@ class EnsureIdempotency
         $telemetry->addSegmentContext($this->segment, 'status', 'late_duplicate');
         $telemetry->endSegment($this->segment);
 
-        $response = Cache::get($keys['response']);
+        $response = $this->cache()->get($keys['response']);
         $this->addIdempotencyHeaders($response, $idempotencyKey, 'Repeated');
 
         return $response;
@@ -463,10 +471,10 @@ class EnsureIdempotency
     private function processRequest(array $keys, string $idempotencyKey, Closure $next, Request $request): mixed
     {
         try {
-            Cache::put($keys['processing'], true, now()->addMinutes($this->getProcessingTtl()));
+            $this->cache()->put($keys['processing'], true, now()->addMinutes($this->getProcessingTtl()));
 
             $payloadHash = md5(json_encode($request->all()));
-            Cache::put($keys['payload_hash'], $payloadHash, now()->addMinutes(config('idempotency.ttl')));
+            $this->cache()->put($keys['payload_hash'], $payloadHash, now()->addMinutes(config('idempotency.ttl')));
 
             $this->setRequestMetadata($keys['metadata'], $request);
 
@@ -510,7 +518,7 @@ class EnsureIdempotency
      */
     private function setRequestMetadata(string $metadataKey, Request $request): void
     {
-        Cache::put(
+        $this->cache()->put(
             $metadataKey,
             [
                 'created_at' => now()->timestamp,
@@ -536,7 +544,7 @@ class EnsureIdempotency
         $cacheableResponse = $this->prepareCacheableResponse($response);
 
         try {
-            Cache::put(
+            $this->cache()->put(
                 $cacheKey,
                 $cacheableResponse,
                 now()->addMinutes(config('idempotency.ttl'))

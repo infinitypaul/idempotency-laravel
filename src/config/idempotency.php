@@ -107,6 +107,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Cache Store
+    |--------------------------------------------------------------------------
+    |
+    | The cache store to use for idempotency data. Set this to a dedicated
+    | store (e.g. 'idempotency') so that running `php artisan cache:clear`
+    | does not wipe out cached idempotency responses.
+    | When null, the application's default cache store is used.
+    |
+    */
+    'cache_store' => env('IDEMPOTENCY_CACHE_STORE', null),
+
+    /*
+    |--------------------------------------------------------------------------
     | Header Name
     |--------------------------------------------------------------------------
     |
