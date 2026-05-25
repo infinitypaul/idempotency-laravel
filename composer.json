@@ -28,6 +28,18 @@
         "illuminate/http": "^9.0|^10.0|^11.0|^12.0|^13.0",
         "inspector-apm/inspector-laravel": "^4.11"
     },
+    "require-dev": {
+        "phpunit/phpunit": "^10.0|^11.0",
+        "orchestra/testbench": "^8.0|^9.0|^10.0|^11.0"
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Infinitypaul\\Idempotency\\Tests\\": "tests/",
+            "Workbench\\App\\": "workbench/app/",
+            "Workbench\\Database\\Factories\\": "workbench/database/factories/",
+            "Workbench\\Database\\Seeders\\": "workbench/database/seeders/"
+        }
+    },
     "minimum-stability": "dev",
     "prefer-stable": true
 }
